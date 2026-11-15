@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Zhenzhao Li · Portfolio</title>
+<title>Zhenzhao Li · Portfolio (scene draft)</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -315,6 +315,15 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){ .glass{background:rgba(255,252,248,.92)} .glass.dark{background:rgba(28,22,26,.7)} }
 @media (prefers-reduced-transparency:reduce){ .glass{background:rgba(255,252,248,.95)} .glass.dark{background:rgba(28,22,26,.8)} }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---------- scene: turnstile feather + drifting sky (desktop only) ---------- */
+.stage.scene .track{transition:none!important}
+.stage.scene .tv{background:transparent}
+.stage.scene #layers{position:absolute;inset:0;background:#15110e}
+.stage.scene .field::before{inset:-14%;transform:translate3d(var(--fx,0),var(--fy,0),0) scale(var(--fs,1));transition:transform 1.3s cubic-bezier(.65,0,.35,1)}
+.stage.scene.turning .track .glass{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;background:rgba(255,252,248,.9)}
+.stage.scene.turning .track .glass.dark{background:rgba(40,28,30,.5)}
+.stage.scene .page.enter [data-rise]{animation:none}
 </style>
 </head>
 <body>
@@ -695,13 +704,80 @@ function morph(toHome){
     requestAnimationFrame(() => requestAnimationFrame(() => { homeEl.style.transform = ''; homeEl.style.clipPath = ''; run(); }));
   } else { homeEl.classList.remove('away'); run(); }
 }
+
+/* ---------- scene: turnstile feather ----------
+   Hinge = left edge of the stage, vanishing point = stage centre.
+   Out: ease-in, short. In: exponential ease-out, no overshoot. Top-to-bottom stagger. */
+const TS = { P: 2200, OUT: 240, IN: 460, GAP: 30,
+  bg: { 1: '#layers' },
+  items: { 1: '#tvCopy > *, #projects .tvdots, #projects .upnext h3, #projects .tcard',
+           2: '#research .head, #research .rcard, #research .next-hint',
+           3: '#approach .head, #approach .tile, #approach .foot' },
+  sky: { 0: ['0%','0%',1], 1: ['5%','3%',1.06], 2: ['0%','-4%',1.1], 3: ['-5%','2%',1.06] } };
+let tsAnims = [], tsTok = 0;
+const stageEl = $('#stage');
+function sceneOn(){ return !mobile() && !reduce && !!document.body.animate; }
+function syncScene(){ stageEl.classList.toggle('scene', sceneOn()); }
+syncScene(); addEventListener('resize', syncScene);
+function setSky(i){ const v = TS.sky[i] || TS.sky[0]; field.style.setProperty('--fx', v[0]); field.style.setProperty('--fy', v[1]); field.style.setProperty('--fs', v[2]); }
+function tsList(i){
+  const els = TS.items[i] ? [...document.querySelectorAll(TS.items[i])] : [];
+  const r = els.map(el => [el, el.getBoundingClientRect()]).filter(([,b]) => b.width > 0 && b.height > 0);
+  r.sort((a,b) => (Math.round(a[1].top/40) - Math.round(b[1].top/40)) || (a[1].left - b[1].left));
+  return r.map(x => x[0]);
+}
+function tsFrame(el){
+  const s = stageEl.getBoundingClientRect(), r = el.getBoundingClientRect(), h = s.width/2;
+  el.style.transformOrigin = (s.left + h - r.left) + 'px ' + (s.top + s.height/2 - r.top) + 'px';
+  return d => `perspective(${TS.P}px) translateX(${-h}px) rotateY(${d}deg) translateX(${h}px)`;
+}
+function tsPlay(el, keys, opa, opt){
+  const a = el.animate(keys, opt), b = el.animate(opa, {duration: opt.duration, delay: opt.delay, fill: opt.fill});
+  tsAnims.push(a, b); return a;
+}
+function tsOut(i, dir){
+  const list = tsList(i), bg = TS.bg[i] && document.querySelector(TS.bg[i]);
+  const all = bg ? [...list, bg] : list; let end = 0;
+  all.forEach((el, k) => {
+    const T = tsFrame(el), delay = (el === bg ? Math.min(list.length, 6) : k) * TS.GAP;
+    tsPlay(el, [{transform: T(0)}, {transform: T(dir * 82)}], [{opacity:1},{opacity:1, offset:.55},{opacity:0}],
+      {duration: TS.OUT, delay, easing: 'cubic-bezier(.4,0,.8,.45)', fill: 'forwards'});
+    end = Math.max(end, delay + TS.OUT);
+  });
+  return end;
+}
+function tsIn(i, dir, lead){
+  const list = tsList(i), bg = TS.bg[i] && document.querySelector(TS.bg[i]);
+  const all = bg ? [bg, ...list] : list; let end = 0;
+  all.forEach((el, k) => {
+    const T = tsFrame(el), delay = lead + (bg ? (el === bg ? 0 : 70 + (k-1) * TS.GAP) : k * TS.GAP);
+    tsPlay(el, [{transform: T(-dir * 72)}, {transform: T(0)}], [{opacity:0},{opacity:1, offset:.28},{opacity:1}],
+      {duration: TS.IN, delay, easing: 'cubic-bezier(.1,.9,.2,1)', fill: 'both'});
+    end = Math.max(end, delay + TS.IN);
+  });
+  return end;
+}
+function tsClear(){ tsAnims.forEach(a => a.cancel()); tsAnims = []; }
+function sceneGo(from, to){
+  const tok = ++tsTok, dir = to > from ? 1 : -1;
+  tsClear(); setSky(to);
+  if(to === 0){ morph(true); stageEl.classList.remove('turning'); return; }
+  stageEl.classList.add('turning');
+  const finish = ms => setTimeout(() => { if(tok === tsTok){ tsClear(); stageEl.classList.remove('turning'); } }, ms + 40);
+  if(from === 0){ place(to); morph(false); finish(tsIn(to, dir, 220)); return; }
+  const wait = tsOut(from, dir);
+  setTimeout(() => { if(tok !== tsTok) return; tsClear(); place(to); finish(tsIn(to, dir, 0)); }, wait);
+}
+setSky(0);
 function showPage(i, opts = {}){
   i = Math.max(0, Math.min(PAGES.length-1, i));
   const from = page; page = i;
   if(i === 1 && opts.cover != null) go(opts.cover);
+  const sc = i !== from && sceneOn();
   if(mobile()) pageEls[i].scrollIntoView({behavior: reduce ? 'auto' : 'smooth'});
+  else if(sc) sceneGo(from, i);
   else { place(i); if(from === 0 && i !== 0) morph(false); else if(i === 0 && from !== 0) morph(true); }
-  if(i !== from){ const el = pageEls[i]; el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter'); }
+  if(i !== from && !sc){ const el = pageEls[i]; el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter'); }
   $('#stage').dataset.page = i;
   tabbar.querySelectorAll('button').forEach((b,j) => { b.classList.toggle('on', j === i); b.setAttribute('aria-current', j === i ? 'page' : 'false'); });
   moveLens();
@@ -727,7 +803,7 @@ function step(dir){
     if(nxt >= 0 && nxt < list.length){ go(nxt); settle = 300; return; }
   }
   const np = page + dir; if(np < 0 || np >= PAGES.length) return;
-  settle = (np === 0 || page === 0) ? 500 : 380;             // a page change gets a moment to land
+  settle = (np === 0 || page === 0) ? 560 : 720;             // a page change gets a moment to land
   showPage(np, {cover: np === 1 ? (dir > 0 ? 0 : list.length-1) : null});
 }
 addEventListener('wheel', e => {
